@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8"/>
+
+	<script src="https://sdk.amazonaws.com/js/aws-sdk-2.967.0.min.js"></script>
+	<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+	<script type="text/javascript">
+    
+		// Set up AWS credentials (USE YOUR CREDENTIALS HERE)
+		AWS.config.update({
+			region: "us-east-1",
+			accessKeyId: "ABCDEFGHIJKLMNOP",
+			secretAccessKey: "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+		})
+
+		// Database scan parameters (GIVE YOUR TABLE NAME HERE)
+		const params = {
+			TableName: "Test",
+			ProjectionExpression: "#",
+			ExpressionAttributeNames: {},
+			ReadOnlyAttributeNames: {}
+		}
+
+		// Create a DynamoDB service object
+		const dynamoDB = new AWS.DynamoDB()
+		const docClient = new AWS.DynamoDB.DocumentClient()
+
+		// Get a list of all database headers
+		const getTableHeaders = async() => {
+			try {
+                // Scan the table, and return as a promise so we can nicely chain events
+				const response = await dynamoDB.scan({
+					TableName: params.TableName
+				}).promise()
+
+                // Return an object literal with all the headers (could probably change this to an array to improve latency by a handful of ms)
+				return Object.keys(response.Items[0])
+			} catch (error) {
+				console.error("Error retrieving table headers from database:", error)
+			}
+		}
+
+		// Retrieve header data and use it to populate params
+		getTableHeaders()
+			.then((headers) => {
+				// Add expressions to the list, which start with "#" and should replace any unacceptable symbols
+				params.ProjectionExpression += headers.join(",#").replace(/[ \|&"*\+%`!\\]/g, "_").replace(/\-/g, "").replace(/(?<!,)#/, "Num")
+				
+				// Add expression keys and corresponding headers to attributes list
+				for (i in headers) {
+					params.ExpressionAttributeNames["#" + headers[i].toString().replace(/[ \|&"*\+%`!\\]/g, "_").replace(/\-/g, "").replace(/(?<!,)#/, "Num")] = headers[i]
+					params.ReadOnlyAttributeNames[i] = headers[i]
+				}
+			})
+			.catch((error) => {
+				console.error("Error saving table headers to local list:", error)
+			})
+
+		// Query the database and display the results
+		function queryTable() {
+
+			// Display temporary loading text while scan method is running
+			$("#table-div").html("<h2>Loading...</h2>")
+
+			// Use scan to retrieve all items from the database
+			docClient.scan(params, function(err, data) {
+				if (err) {
+					console.error("Unable to scan the table. Error JSON: ", JSON.stringify(err, null, 2))
+				} else {
+                    // Start putting together the table element (TODO: rewrite this garbage using React)
+					var html = "<table><tr>"
+					
+					for (i in params.ReadOnlyAttributeNames) {
+						html += "<th>" + params.ReadOnlyAttributeNames[i] + "</th>"
+					}
+
+					html += "</tr>"
+
+					data.Items.forEach(function(item) {
+						html += "<tr>"
+
+						for (i in params.ExpressionAttributeNames) {
+							html += "<td>" + item[i.slice(1)] + "</td>"
+						}
+
+						html += "</tr>"
+					})
+					html += "</table>"
+					$("#table-div").html(html)
+				}
+			})
+		}
+	</script>
+</head>
+<body>
+	<h1>Example database import</h1>
+  <br>
+	<button onclick="queryTable()">Query Table</button>
+  <br>
+  <div id="table-div"></div>
+</body>
